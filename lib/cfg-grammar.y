@@ -126,6 +126,7 @@ extern struct _LogDriver *last_driver;
 %token KW_OPTIONS                     10005
 %token KW_INCLUDE                     10006
 %token KW_BLOCK                       10007
+%token KW_JUNCTION                    10008
 
 /* source & destination items */
 %token KW_INTERNAL                    10010
@@ -350,9 +351,11 @@ ValuePairsTransformSet *last_vp_transset;
 %type	<ptr> dest_item
 %type   <ptr> dest_plugin
 
+%type	<ptr> log_content
 %type	<ptr> log_items
 %type	<ptr> log_item
 
+%type   <ptr> log_last_junction
 %type   <ptr> log_forks
 %type   <ptr> log_fork
 
@@ -463,21 +466,6 @@ dest_stmt
           }
 	;
 
-log_stmt
-        : KW_LOG
-          { cfg_lexer_push_context(lexer, LL_CONTEXT_LOG, NULL, "log"); }
-          '{' log_items log_forks log_flags '}'
-          { cfg_lexer_pop_context(lexer); }
-
-          {
-            LogPipeItem *pi = log_pipe_item_append_tail($4, $5);
-            LogConnection *c = log_connection_new(pi, $6);
-
-            cfg_add_connection(configuration, c);
-          }
-
-	;
-	
 block_stmt
         : KW_BLOCK
           { cfg_lexer_push_context(lexer, LL_CONTEXT_BLOCK_DEF, block_def_keywords, "block definition"); }
@@ -518,6 +506,26 @@ block_arg
           }
         ;
 
+log_stmt
+        : KW_LOG
+          { cfg_lexer_push_context(lexer, LL_CONTEXT_LOG, NULL, "log"); }
+          '{' log_content '}'
+          { cfg_lexer_pop_context(lexer); }
+
+          {
+            cfg_add_connection(configuration, $4);
+          }
+
+	;
+
+log_content
+        : log_items log_last_junction log_flags
+          {
+            LogPipeItem *pi = log_pipe_item_append_tail($1, $2);
+            $$ = log_connection_new(pi, $3);
+          }
+        ;
+
 log_items
 	: log_item log_semicolons log_items		{ log_pipe_item_append($1, $3); $$ = $1; }
 	|					{ $$ = NULL; }
@@ -527,9 +535,22 @@ log_item
 	: KW_SOURCE '(' string ')'		{ $$ = log_pipe_item_new(EP_SOURCE, $3); free($3); }
 	| KW_FILTER '(' string ')'		{ $$ = log_pipe_item_new(EP_FILTER, $3); free($3); }
         | KW_PARSER '(' string ')'              { $$ = log_pipe_item_new(EP_PARSER, $3); free($3); }
-        | KW_REWRITE '(' string ')'              { $$ = log_pipe_item_new(EP_REWRITE, $3); free($3); }
+        | KW_REWRITE '(' string ')'             { $$ = log_pipe_item_new(EP_REWRITE, $3); free($3); }
 	| KW_DESTINATION '(' string ')'		{ $$ = log_pipe_item_new(EP_DESTINATION, $3); free($3); }
+        | KW_JUNCTION '{' log_forks '}'         { $$ = log_pipe_item_new_ref(EP_JUNCTION, $3); }
 	;
+
+log_last_junction
+
+        /* this rule matches the last set of embedded log {}
+         * statements at the end of the log {} block.
+         * It is the final junction and was the only form of creating
+         * a processing tree before syslog-ng 3.4.
+         *
+         * We emulate if the user was writing junction {} explicitly.
+         */
+        : log_forks                             { $$ = $1 ? log_pipe_item_new_ref(EP_JUNCTION, $1) :  NULL; }
+        ;
 
 log_forks
         : log_fork log_semicolons log_forks		{ log_pipe_item_append($1, $3); $$ = $1; }
@@ -537,7 +558,7 @@ log_forks
         ;
 
 log_fork
-        : KW_LOG '{' log_items log_forks log_flags '}' { LogPipeItem *pi = log_pipe_item_append_tail($3, $4); $$ = log_pipe_item_new_ref(EP_PIPE, log_connection_new(pi, $5)); }
+        : KW_LOG '{' log_items log_last_junction log_flags '}' { LogPipeItem *pi = log_pipe_item_append_tail($3, $4); $$ = log_pipe_item_new_ref(EP_PIPE, log_connection_new(pi, $5)); }
         ;
 
 log_flags

@@ -156,6 +156,9 @@ log_pipe_item_free(LogPipeItem *self)
         case EP_REWRITE:
           log_process_rule_unref((LogProcessRule *) self->ref);
           break;
+        case EP_JUNCTION:
+          log_pipe_item_list_free((LogPipeItem *) self->ref);
+          break;
         default:
           g_assert_not_reached();
           break;
@@ -163,6 +166,7 @@ log_pipe_item_free(LogPipeItem *self)
     }
   g_free(self);
 }
+
 
 /**
  * log_connection_new:
@@ -308,15 +312,103 @@ log_center_instantiate_process_pipe_line(LogCenter *self, LogProcessRule *rule)
     }
 }
 
+static LogPipe *
+log_center_build_pipe_sequence(LogCenter *self, LogConnection *conn,
+                               LogPipe **outer_pipe_tail,
+                               GlobalConfig *cfg,
+                               gboolean toplevel,
+                               gboolean flow_controlled_parent);
+
+
+/**
+ * log_center_build_pipe_junction():
+ *
+ * This function builds a junction within the configuration. A
+ * junction is where processing is forked into several branches, each
+ * doing its own business.
+ **/
+static LogPipe *
+log_center_build_pipe_junction(LogCenter *self,
+                               LogPipeItem *branches,
+                               LogPipe **outer_pipe_tail,
+                               GlobalConfig *cfg,
+                               gboolean toplevel,
+                               gboolean flow_controlled_parent)
+{
+  LogPipeItem *ep;
+  LogPipe *join_pipe = NULL;    /* the pipe where parallel branches are joined in a junction */
+  LogMultiplexer *fork_mpx = NULL;
+  gboolean flow_controlled_child = FALSE;
+
+  /* junction starts with a multiplexer that dispatches messages to a number of branches */
+  fork_mpx = log_multiplexer_new(0);
+  g_ptr_array_add(self->initialized_pipes, &fork_mpx->super);
+
+  /* at the end of each branch a pipe is used to collect the message at the end of each branch */
+  join_pipe = log_pipe_new();
+  g_ptr_array_add(self->initialized_pipes, join_pipe);
+
+  for (ep = branches; ep; ep = ep->ep_next)
+    {
+      g_assert(ep->type == EP_PIPE);
+
+      switch (ep->type)
+        {
+        case EP_PIPE:
+          {
+            LogPipe *sub_pipe, *sub_pipe_tail = NULL;
+
+            sub_pipe = log_center_build_pipe_sequence(self, (LogConnection *) ep->ref, &sub_pipe_tail, cfg, FALSE, flow_controlled_parent);
+            if (!sub_pipe)
+              {
+                /* error initializing subpipe */
+                goto error;
+              }
+            log_pipe_append(sub_pipe_tail, join_pipe);
+
+            if (sub_pipe->flags & PIF_HARD_FLOW_CONTROL)
+              flow_controlled_child = TRUE;
+            log_multiplexer_add_next_hop(fork_mpx, sub_pipe);
+
+            break;
+          }
+        default:
+          {
+            /* a junction can only contain embedded log statements (=EP_PIPE) */
+            g_assert_not_reached();
+            break;
+          }
+        }
+
+    }
+
+  if (flow_controlled_child || flow_controlled_parent)
+    fork_mpx->super.flags |= PIF_HARD_FLOW_CONTROL;
+
+  if (outer_pipe_tail)
+    *outer_pipe_tail = join_pipe;
+  return &fork_mpx->super;
+ error:
+
+  /* we don't need to free anything, everything we allocated is recorded in
+   * @self, thus will be freed whenever log_center_free is called */
+
+  return NULL;
+}
 
 /* NOTE: returns a borrowed reference! */
 /**
- * log_center_init_pipe_line:
+ * log_center_build_pipe_sequence:
  *
- * Construct a LogPipe pipeline as specified by the user. The
- * configuration is parsed into a series of LogPipeItem elements, each
- * giving a reference to a source, filter, parser, rewrite and
- * destination. This function connects these so that their
+ * Construct the sequential part of LogPipe pipeline as specified by
+ * the user. The sequential part is where no branches exist, pipes are
+ * merely linked to each other. This is in contrast with a "junction"
+ * where the processing is forked into different branches. Junctions
+ * are built using log_center_build_pipe_junction() above.
+ *
+ * The configuration is parsed into a series of LogPipeItem
+ * elements, each giving a reference to a source, filter, parser,
+ * rewrite and destination. This function connects these so that their
  * log_pipe_queue() method will dispatch the message correctly (which
  * in turn boils down to setting the LogPipe->next member).
  *
@@ -326,12 +418,29 @@ log_center_instantiate_process_pipe_line(LogCenter *self, LogProcessRule *rule)
  *
  * The next member pointer is not holding a reference, but can be
  * assumed to be kept alive as long as the configuration is running.
-LogPipe *
-log_center_init_pipe_line(LogCenter *self, LogConnection *conn, GlobalConfig *cfg, gboolean toplevel, gboolean flow_controlled_parent)
+ *
+ * Parameters:
+ * @self: the LogCenter instance
+ * @conn: the series of LogPipeItem instances encapsulates as a LogConnection
+ * @outer_pipe_tail: the last LogPipe to be used to chain further elements to this sequence
+ * @cfg: GlobalConfig instance
+ * @toplevel: whether this rule is a top-level one.
+ * @flow_controlled_parent: specifies whether the parent log statement has flags(flow-controlled)
+ **/
+static LogPipe *
+log_center_build_pipe_sequence(LogCenter *self, LogConnection *conn,
+                               LogPipe **outer_pipe_tail,
+                               GlobalConfig *cfg,
+                               gboolean toplevel,
+                               gboolean flow_controlled_parent)
 {
   LogPipeItem *ep;
-  LogPipe *first_pipe, *pipe, *last_pipe;
-  LogMultiplexer *fork_mpx = NULL;
+  LogPipe
+    *first_pipe,   /* the head of the constructed pipeline */
+    *last_pipe;    /* the current tail of the constructed pipeline */
+  LogPipe
+    *pipe,         /* the new pipe to be inserted to the pipeline */
+    *pipe_tail;    /* the tail of the new pipe (if any) to be inserted to the pipeline */
   gboolean  path_changes_the_message = FALSE, flow_controlled_child = FALSE;
 
   /* resolve pipe references, find first pipe */
@@ -343,6 +452,18 @@ log_center_init_pipe_line(LogCenter *self, LogConnection *conn, GlobalConfig *cf
       goto error;
     }
   
+  /* the loop below creates a linked list of LogPipe instances that
+   * processes messages as dictated by the user configuration. Such a
+   * linked list is called "log processing pipeline" in comments below.
+   *
+   * The head of this list is pointed to by @first_pipe, the current
+   * end is known as @last_pipe.
+   *
+   * New elements are added to this list as the LogPipeItem list is
+   * traversed, each of that list is an element within the log {}
+   * statement as specified by the user (see LogPipeItem struct).
+   */
+
   first_pipe = last_pipe = NULL;
   
   pipe = NULL;
@@ -350,7 +471,21 @@ log_center_init_pipe_line(LogCenter *self, LogConnection *conn, GlobalConfig *cf
     {
       g_assert(pipe == NULL);
 
-      /* this switch results in a borrowed reference to be stored in @pipe */
+      pipe_tail = NULL;
+
+      g_assert(ep->type != EP_PIPE);
+
+      /* this switch constructs/finds a LogPipe instance(s) to be
+       * inserted into to the current log processing pipeline.
+       *
+       * The end-result of the switch is:
+       *
+       *   @pipe: points to the head of the new LogPipe linked-list
+       *   @pipe_tail: points to the tail of the new LogPipe linked-list
+       *
+       * If @pipe_tail is NULL,
+       */
+
       switch (ep->type)
         {
         case EP_SOURCE:
@@ -453,27 +588,25 @@ log_center_init_pipe_line(LogCenter *self, LogConnection *conn, GlobalConfig *cf
             g_ptr_array_add(self->initialized_pipes, pipe);
             break;
           }
-        case EP_PIPE:
+        case EP_JUNCTION:
           {
-            LogPipe *sub_pipe;
+            LogPipe *sub_pipe, *sub_pipe_tail = NULL;
 
-            if (!fork_mpx)
-              {
-                fork_mpx = log_multiplexer_new(0);
-                pipe = &fork_mpx->super;
-                g_ptr_array_add(self->initialized_pipes, pipe);
-              }
-            sub_pipe = log_center_init_pipe_line(self, (LogConnection *) ep->ref, cfg, FALSE, (conn->flags & LC_FLOW_CONTROL));
+            /* an embedded pipeline is assumed to end in a single LogPipe instance on all branches, which is returned in sub_pipe_tail */
+
+            sub_pipe = log_center_build_pipe_junction(self, (LogPipeItem *) ep->ref, &sub_pipe_tail, cfg, FALSE, (conn->flags & LC_FLOW_CONTROL));
             if (!sub_pipe)
               {
                 /* error initializing subpipe */
                 goto error;
               }
+
             if (sub_pipe->flags & PIF_HARD_FLOW_CONTROL)
               flow_controlled_child = TRUE;
-            log_multiplexer_add_next_hop(fork_mpx, sub_pipe);
+
+            pipe = sub_pipe;
+            pipe_tail = sub_pipe_tail;
             break;
-          }
           }
         default:
           {
@@ -482,29 +615,29 @@ log_center_init_pipe_line(LogCenter *self, LogConnection *conn, GlobalConfig *cf
           }
         }
         
-      /* pipe is only a borrowed reference */
+      /* add pipe to the current pipe_line, e.g. after last_pipe, update last_pipe & first_pipe */
       if (pipe)
         {
           if (!first_pipe)
             first_pipe = pipe;
 
           if (last_pipe)
+            log_pipe_append(last_pipe, pipe);
+
+          if (pipe_tail)
             {
-              log_pipe_append(last_pipe, pipe);
-              last_pipe = pipe;
-              pipe = NULL;
+              last_pipe = pipe_tail;
             }
           else
             {
               last_pipe = pipe;
-              pipe = NULL;
+              /* look for the final pipe */
+              while (last_pipe->pipe_next)
+                {
+                  last_pipe = last_pipe->pipe_next;
+                }
             }
-
-          /* look for the final pipe */
-          while (last_pipe->pipe_next)
-            {
-              last_pipe = last_pipe->pipe_next;
-            }
+          pipe = NULL;
         }
     }
   
@@ -547,6 +680,8 @@ log_center_init_pipe_line(LogCenter *self, LogConnection *conn, GlobalConfig *cf
       gpointer args[] = { self, first_pipe };
       g_hash_table_foreach(cfg->sources, log_center_connect_source, args);
     }
+  if (outer_pipe_tail)
+    *outer_pipe_tail = last_pipe;
   return first_pipe;
  error:
   
@@ -568,7 +703,7 @@ log_center_init(LogCenter *self, GlobalConfig *cfg)
       LogConnection *conn = (LogConnection *) g_ptr_array_index(cfg->connections, i);
       LogPipe *pipe_line;
       
-      pipe_line = log_center_init_pipe_line(self, conn, cfg, TRUE, FALSE);
+      pipe_line = log_center_build_pipe_sequence(self, conn, NULL, cfg, TRUE, FALSE);
       if (!pipe_line)
         {
           return FALSE;

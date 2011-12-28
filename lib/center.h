@@ -30,12 +30,16 @@
 #include "logpipe.h"
 #include "stats.h"
 
-#define EP_SOURCE      1
-#define EP_FILTER      2
-#define EP_PARSER      3
-#define EP_DESTINATION 4
-#define EP_PIPE        5
-#define EP_REWRITE      6
+enum
+{
+  EP_SOURCE = 1,
+  EP_FILTER,
+  EP_PARSER,
+  EP_DESTINATION,
+  EP_REWRITE,
+  EP_PIPE,
+  EP_JUNCTION,
+};
 
 typedef struct _LogPipeItem LogPipeItem;
 
