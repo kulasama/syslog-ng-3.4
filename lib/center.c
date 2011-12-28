@@ -109,6 +109,18 @@ log_pipe_item_new_ref(gint type, gpointer ref)
   return self;
 }
 
+static void
+log_pipe_item_list_free(LogPipeItem *ep)
+{
+  LogPipeItem *ep_next;
+
+  for ( ; ep; ep = ep_next)
+    {
+      ep_next = ep->ep_next;
+      log_pipe_item_free(ep);
+    }
+}
+
 /**
  * log_pipe_item_free:
  * @self: LogPipeItem instance
@@ -181,13 +193,7 @@ log_connection_new(LogPipeItem *endpoints, guint32 flags)
 void
 log_connection_free(LogConnection *self)
 {
-  LogPipeItem *ep, *ep_next;
-  
-  for (ep = self->endpoints; ep; ep = ep_next)
-    {
-      ep_next = ep->ep_next;
-      log_pipe_item_free(ep);
-    }
+  log_pipe_item_list_free(self->endpoints);
   g_free(self);
 }
 
