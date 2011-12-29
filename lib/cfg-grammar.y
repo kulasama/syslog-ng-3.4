@@ -365,6 +365,12 @@ ValuePairsTransformSet *last_vp_transset;
 %type	<ptr> options_items
 %type	<ptr> options_item
 
+%type   <ptr> source_content
+%type   <ptr> filter_content
+%type   <ptr> parser_content
+%type   <ptr> rewrite_content
+%type   <ptr> dest_content
+
 /* START_DECLS */
 
 %type   <ptr> value_pair_option
@@ -408,63 +414,92 @@ stmt
 	;
 
 source_stmt
-	: KW_SOURCE string
-          { cfg_lexer_push_context(lexer, LL_CONTEXT_SOURCE, NULL, "source"); }
-          '{' source_items '}'
-          { cfg_lexer_pop_context(lexer); }
+	: KW_SOURCE string '{' source_content '}'
           {
-            LogSourceGroup *sgroup = log_source_group_new($2, $5); free($2);
+            LogSourceGroup *sgroup = log_source_group_new($2, $4); free($2);
             CHECK_ERROR(cfg_add_source(configuration, sgroup) || cfg_allow_config_dups(configuration), @2, "duplicate source definition");
           }
 	;
 
+
+source_content
+        :
+          { cfg_lexer_push_context(lexer, LL_CONTEXT_SOURCE, NULL, "source"); }
+          source_items
+          { cfg_lexer_pop_context(lexer); }
+          { $$ = $2; }
+        ;
+
 filter_stmt
-	: KW_FILTER string '{'
-	  {
-	    last_filter_expr = NULL;
-	    CHECK_ERROR(cfg_parser_parse(&filter_expr_parser, lexer, (gpointer *) &last_filter_expr, NULL), @2, NULL);
-	  }
-          '}'
+	: KW_FILTER string '{' filter_content '}'
           {
-            LogProcessRule *rule = log_process_rule_new($2, g_list_prepend(NULL, log_filter_pipe_new(last_filter_expr, $2)));
+            LogProcessRule *rule = log_process_rule_new($2, g_list_prepend(NULL, log_filter_pipe_new($4, $2)));
             free($2);
             CHECK_ERROR(cfg_add_filter(configuration, rule) || cfg_allow_config_dups(configuration), @2, "duplicate filter rule");
           }
+        ;
+
+filter_content
+        : {
+	    CHECK_ERROR(cfg_parser_parse(&filter_expr_parser, lexer, (gpointer *) &last_filter_expr, NULL), @0, NULL);
+            $$ = last_filter_expr;
+            last_filter_expr = NULL;
+	  }
 	;
 	
 parser_stmt
-        : KW_PARSER string '{'
+        : KW_PARSER string '{' parser_content '}'
           {
-            CHECK_ERROR(cfg_parser_parse(&parser_expr_parser, lexer, (gpointer *) &last_parser_expr, NULL), @2, NULL);
-          } '}'
-          {
-            LogProcessRule *rule = log_process_rule_new($2, last_parser_expr);
+            LogProcessRule *rule = log_process_rule_new($2, $4);
             free($2);
             CHECK_ERROR(cfg_add_parser(configuration, rule) || cfg_allow_config_dups(configuration), @2, "duplicate parser rule");
           }
+        ;
+
+parser_content
+        :
+          {
+            CHECK_ERROR(cfg_parser_parse(&parser_expr_parser, lexer, (gpointer *) &last_parser_expr, NULL), @0, NULL);
+            $$ = last_parser_expr;
+            last_parser_expr = NULL;
+          }
+        ;
 
 rewrite_stmt
-        : KW_REWRITE string '{'
+        : KW_REWRITE string '{' rewrite_content '}'
           {
-            CHECK_ERROR(cfg_parser_parse(&rewrite_expr_parser, lexer, (gpointer *) &last_rewrite_expr, NULL), @2, NULL);
-          } '}'
-          {
-            LogProcessRule *rule = log_process_rule_new($2, last_rewrite_expr);
+            LogProcessRule *rule = log_process_rule_new($2, $4);
             free($2);
             CHECK_ERROR(cfg_add_rewrite(configuration, rule) || cfg_allow_config_dups(configuration), @2, "duplicate rewrite rule");
           }
 
-dest_stmt
-        : KW_DESTINATION string
-          { cfg_lexer_push_context(lexer, LL_CONTEXT_DESTINATION, NULL, "destination"); }
-          '{' dest_items '}'
-          { cfg_lexer_pop_context(lexer); }
+rewrite_content
+        :
           {
-            LogDestGroup *dgroup = log_dest_group_new($2, $5);
+            CHECK_ERROR(cfg_parser_parse(&rewrite_expr_parser, lexer, (gpointer *) &last_rewrite_expr, NULL), @0, NULL);
+            $$ = last_rewrite_expr;
+            last_rewrite_expr = NULL;
+          }
+        ;
+
+dest_stmt
+        : KW_DESTINATION string '{' dest_content '}'
+          {
+            LogDestGroup *dgroup = log_dest_group_new($2, $4);
             free($2);
             CHECK_ERROR(cfg_add_dest(configuration, dgroup) || cfg_allow_config_dups(configuration), @2, "duplicate destination");
           }
 	;
+
+dest_content
+         : { cfg_lexer_push_context(lexer, LL_CONTEXT_DESTINATION, NULL, "destination"); }
+            dest_items
+           { cfg_lexer_pop_context(lexer); }
+           {
+             $$ = $2;
+           }
+         ;
+
 
 block_stmt
         : KW_BLOCK
@@ -533,10 +568,19 @@ log_items
 
 log_item
 	: KW_SOURCE '(' string ')'		{ $$ = log_pipe_item_new(EP_SOURCE, $3); free($3); }
+	| KW_SOURCE '{' source_content '}'	{ $$ = log_pipe_item_new_ref(EP_SOURCE, log_source_group_new(NULL, $3)); }
 	| KW_FILTER '(' string ')'		{ $$ = log_pipe_item_new(EP_FILTER, $3); free($3); }
+        | KW_FILTER '{' filter_content '}'
+          {
+            LogProcessRule *rule = log_process_rule_new(NULL, g_list_prepend(NULL, log_filter_pipe_new($3, NULL)));
+            $$ = log_pipe_item_new_ref(EP_FILTER, rule);
+          }
         | KW_PARSER '(' string ')'              { $$ = log_pipe_item_new(EP_PARSER, $3); free($3); }
+        | KW_PARSER '{' parser_content '}'      { $$ = log_pipe_item_new_ref(EP_PARSER, log_process_rule_new(NULL, $3)); }
         | KW_REWRITE '(' string ')'             { $$ = log_pipe_item_new(EP_REWRITE, $3); free($3); }
+        | KW_REWRITE '{' rewrite_content '}'    { $$ = log_pipe_item_new_ref(EP_REWRITE, log_process_rule_new(NULL, $3)); }
 	| KW_DESTINATION '(' string ')'		{ $$ = log_pipe_item_new(EP_DESTINATION, $3); free($3); }
+	| KW_DESTINATION '{' dest_content '}'	{ $$ = log_pipe_item_new_ref(EP_DESTINATION, log_dest_group_new(NULL, $3)); }
         | KW_JUNCTION '{' log_forks '}'         { $$ = log_pipe_item_new_ref(EP_JUNCTION, $3); }
 	;
 

@@ -34,7 +34,11 @@ log_dest_group_init(LogPipe *s)
 {
   LogDestGroup *self = (LogDestGroup *) s;
   LogDriver *p;
+  GlobalConfig *cfg = log_pipe_get_config(s);
   gint id = 0;
+
+  if (!self->name)
+    self->name = g_strdup_printf("#anon-dest-%d", cfg->anon_dgroups++);
 
   for (p = self->drivers; p; p = p->drv_next)
     {

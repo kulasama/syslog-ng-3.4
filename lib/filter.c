@@ -673,6 +673,10 @@ static gboolean
 log_filter_pipe_init(LogPipe *s)
 {
   LogFilterPipe *self = (LogFilterPipe *) s;
+  GlobalConfig *cfg = log_pipe_get_config(s);
+
+  if (!self->name)
+    self->name = g_strdup_printf("#anon-filter-%d", cfg->anon_filters++);
 
   if (self->expr->init)
     self->expr->init(self->expr, log_pipe_get_config(s));
@@ -686,12 +690,12 @@ log_filter_pipe_queue(LogPipe *s, LogMessage *msg, const LogPathOptions *path_op
   gboolean res;
   
   msg_debug("Filter rule evaluation begins",
-            evt_tag_str("filter_rule", self->name ? self->name : "unnamed"),
+            evt_tag_str("filter_rule", self->name),
             NULL);
   res = filter_expr_eval(self->expr, msg);
   msg_debug("Filter rule evaluation result",
             evt_tag_str("filter_result", res ? "match" : "not-match"),
-            evt_tag_str("filter_rule", self->name ? self->name : "unnamed"),
+            evt_tag_str("filter_rule", self->name),
             NULL);
   if (res)
     {

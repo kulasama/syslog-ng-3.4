@@ -39,6 +39,10 @@ log_source_group_init(LogPipe *s)
   GlobalConfig *cfg = log_pipe_get_config(s);
   gint id = 0;
 
+  if (!self->name)
+    self->name = g_strdup_printf("#anon-source-%d", cfg->anon_sgroups++);
+  self->name_len = strlen(self->name);
+
   for (p = self->drivers; p; p = p->drv_next)
     {
       p->group = g_strdup(self->name);
@@ -120,7 +124,6 @@ log_source_group_new(gchar *name, LogDriver *drivers)
 
   log_pipe_init_instance(&self->super);  
   self->name = g_strdup(name);
-  self->name_len = strlen(self->name);
   self->drivers = drivers;
   self->super.init = log_source_group_init;
   self->super.deinit = log_source_group_deinit;

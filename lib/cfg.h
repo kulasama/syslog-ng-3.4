@@ -105,6 +105,7 @@ struct _GlobalConfig
   struct _LogTemplate *proto_template;
   
   /* */
+  gint anon_dgroups, anon_sgroups, anon_filters;
   GHashTable *sources;
   GHashTable *destinations;
   GHashTable *filters;

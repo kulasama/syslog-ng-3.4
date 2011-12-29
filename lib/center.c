@@ -492,7 +492,8 @@ log_center_build_pipe_sequence(LogCenter *self, LogConnection *conn,
           {
             if (toplevel && (conn->flags & LC_CATCHALL) == 0)
               {
-                ep->ref = g_hash_table_lookup(cfg->sources, ep->name->str);
+                if (!ep->ref)
+                  ep->ref = g_hash_table_lookup(cfg->sources, ep->name->str);
                 if (!ep->ref)
                   {
                     msg_error("Error in configuration, unresolved source reference",
@@ -548,7 +549,8 @@ log_center_build_pipe_sequence(LogCenter *self, LogConnection *conn,
               default:
                 g_assert_not_reached();
               }
-            ep->ref = g_hash_table_lookup(t, ep->name->str);
+            if (!ep->ref)
+              ep->ref = g_hash_table_lookup(t, ep->name->str);
             if (!ep->ref)
               {
                 msg_error("Error in configuration, unresolved processing element reference",
@@ -572,7 +574,8 @@ log_center_build_pipe_sequence(LogCenter *self, LogConnection *conn,
 
         case EP_DESTINATION:
           {
-            ep->ref = g_hash_table_lookup(cfg->destinations, ep->name->str);
+            if (!ep->ref)
+              ep->ref = g_hash_table_lookup(cfg->destinations, ep->name->str);
             if (!ep->ref)
               {
                 msg_error("Error in configuration, unresolved destination reference",
