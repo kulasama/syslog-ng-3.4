@@ -615,7 +615,7 @@ afsocket_sd_init(LogPipe *s)
         }
       self->flags |= AFSOCKET_WNDSIZE_INITED;
     }
-  log_reader_options_init(&self->reader_options, cfg, self->super.super.group);
+  log_reader_options_init(&self->reader_options, cfg, self->super.super.rule);
 
   /* fetch persistent connections first */
   if ((self->flags & AFSOCKET_KEEP_ALIVE))

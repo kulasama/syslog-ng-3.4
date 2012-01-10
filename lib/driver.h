@@ -50,7 +50,7 @@
  * "plugins" to drivers.  These plugins basically get a chance to override
  * LogDriver virtual methods, change their semantics and possibly rely on
  * the original behaviour too.  This way, functionalities that are present
- * in all destination drivers can easily shared, without having to recode
+ * in all destination drivers can easily be shared, without having to recode
  * the same stuff multiple times.
  *
  * Driver plugins are activated with the "attach" virtual method, which in
@@ -109,7 +109,7 @@ struct _LogDriver
   LogPipe super;
 
   gboolean optional;
-  gchar *group;
+  gchar *rule;
   gchar *id;
   GList *plugins;
   LogDriver *drv_next;

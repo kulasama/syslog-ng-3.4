@@ -72,7 +72,7 @@ log_rewrite_free_method(LogPipe *s)
 
   if (self->condition)
     filter_expr_unref(self->condition);
-  log_process_pipe_free_method(s);
+  log_pipe_free_method(s);
 }
 
 static gboolean
@@ -89,12 +89,12 @@ log_rewrite_init_method(LogPipe *s)
 static void
 log_rewrite_init(LogRewrite *self)
 {
-  log_process_pipe_init_instance(&self->super);
+  log_pipe_init_instance(&self->super);
   /* indicate that the rewrite rule is changing the message */
-  self->super.super.flags |= PIF_CLONE;
-  self->super.super.free_fn = log_rewrite_free_method;
-  self->super.super.queue = log_rewrite_queue;
-  self->super.super.init = log_rewrite_init_method;
+  self->super.flags |= PIF_CLONE;
+  self->super.free_fn = log_rewrite_free_method;
+  self->super.queue = log_rewrite_queue;
+  self->super.init = log_rewrite_init_method;
   self->value_handle = LM_V_MESSAGE;
 }
 
@@ -170,7 +170,7 @@ log_rewrite_subst_set_flags(LogRewrite *s, gint flags)
 }
 
 static LogPipe *
-log_rewrite_subst_clone(LogProcessPipe *s)
+log_rewrite_subst_clone(LogPipe *s)
 {
   LogRewriteSubst *self = (LogRewriteSubst *) s;
   LogRewriteSubst *cloned;
@@ -179,7 +179,7 @@ log_rewrite_subst_clone(LogProcessPipe *s)
   cloned->matcher = log_matcher_ref(self->matcher);
   cloned->super.value_handle = self->super.value_handle;
   cloned->super.condition = self->super.condition;
-  return &cloned->super.super.super;
+  return &cloned->super.super;
 }
 
 
@@ -200,7 +200,7 @@ log_rewrite_subst_new(const gchar *replacement)
 
   log_rewrite_init(&self->super);
 
-  self->super.super.super.free_fn = log_rewrite_subst_free;
+  self->super.super.free_fn = log_rewrite_subst_free;
   self->super.super.clone = log_rewrite_subst_clone;
   self->super.process = log_rewrite_subst_process;
   
@@ -235,7 +235,7 @@ log_rewrite_set_process(LogRewrite *s, LogMessage *msg)
 }
 
 static LogPipe *
-log_rewrite_set_clone(LogProcessPipe *s)
+log_rewrite_set_clone(LogPipe *s)
 {
   LogRewriteSet *self = (LogRewriteSet *) s;
   LogRewriteSet *cloned;
@@ -243,7 +243,7 @@ log_rewrite_set_clone(LogProcessPipe *s)
   cloned = (LogRewriteSet *) log_rewrite_set_new(self->value_template->template);
   cloned->super.value_handle = self->super.value_handle;
   cloned->super.condition = self->super.condition;
-  return &cloned->super.super.super;
+  return &cloned->super.super;
 }
 
 static void
@@ -261,7 +261,7 @@ log_rewrite_set_new(const gchar *new_value)
   LogRewriteSet *self = g_new0(LogRewriteSet, 1);
   
   log_rewrite_init(&self->super);
-  self->super.super.super.free_fn = log_rewrite_set_free;
+  self->super.super.free_fn = log_rewrite_set_free;
   self->super.super.clone = log_rewrite_set_clone;
   self->super.process = log_rewrite_set_process;
 

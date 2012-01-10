@@ -168,7 +168,7 @@ afstreams_sd_init(LogPipe *s)
   if (!log_src_driver_init_method(s))
     return FALSE;
 
-  log_reader_options_init(&self->reader_options, cfg, self->super.super.group);
+  log_reader_options_init(&self->reader_options, cfg, self->super.super.rule);
 
   fd = open(self->dev_filename->str, O_RDONLY | O_NOCTTY | O_NONBLOCK);
   if (fd != -1)

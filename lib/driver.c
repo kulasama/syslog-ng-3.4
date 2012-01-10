@@ -97,8 +97,8 @@ log_driver_free(LogPipe *s)
     }
   log_pipe_unref(&self->drv_next->super);
   self->drv_next = NULL;
-  if (self->group)
-    g_free(self->group);
+  if (self->rule)
+    g_free(self->rule);
   if (self->id)
     g_free(self->id);
   log_pipe_free_method(s);
@@ -112,6 +112,13 @@ log_driver_init_instance(LogDriver *self)
   self->super.free_fn = log_driver_free;
   self->super.init = log_driver_init_method;
   self->super.deinit = log_driver_deinit_method;
+
+#if 0
+  /* FIXME: determine group name and id */
+  self->rule = g_strdup(cfg_get_rule_name());
+  if (!self->id)
+    self->id = g_strdup_printf("%s#%d", self->rule, cfg_get_driver_id());
+#endif
 }
 
 /* LogSrcDriver */
@@ -120,6 +127,7 @@ void
 log_src_driver_init_instance(LogSrcDriver *self)
 {
   log_driver_init_instance(&self->super);
+  self->super.super.flags |= PIF_SOURCE;
 }
 
 void

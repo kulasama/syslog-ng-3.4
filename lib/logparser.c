@@ -67,6 +67,11 @@ log_parser_queue(LogPipe *s, LogMessage *msg, const LogPathOptions *path_options
       success = self->process(self, msg, input->str);
       g_string_free(input, TRUE);
     }
+  msg_debug("Message parsing complete",
+            evt_tag_int("result", success),
+            evt_tag_str("rule", self->rule),
+            evt_tag_str("id", self->id),
+            NULL);
   if (success)
     {
       log_pipe_forward_msg(s, msg, path_options);
@@ -84,17 +89,26 @@ log_parser_free_method(LogPipe *s)
 {
   LogParser *self = (LogParser *) s;
 
+  g_free(self->rule);
+  g_free(self->id);
   log_template_unref(self->template);
-  log_process_pipe_free_method(s);
+  log_pipe_free_method(s);
 }
 
 void
 log_parser_init_instance(LogParser *self)
 {
-  log_process_pipe_init_instance(&self->super);
-  self->super.super.flags |= PIF_CLONE;
-  self->super.super.free_fn = log_parser_free_method;
-  self->super.super.queue = log_parser_queue;
+  log_pipe_init_instance(&self->super);
+  self->super.flags |= PIF_CLONE;
+  self->super.free_fn = log_parser_free_method;
+  self->super.queue = log_parser_queue;
+
+#if 0
+  /* FIXME: */
+  self->rule = g_strdup(cfg_get_rule_name());
+  if (!self->id)
+    self->id = g_strdup_printf("%s#%d", self->rule, cfg_get_driver_id());
+#endif
 }
 
 /*
@@ -123,5 +137,5 @@ void
 log_column_parser_init_instance(LogColumnParser *self)
 {
   log_parser_init_instance(&self->super);
-  self->super.super.super.free_fn = log_column_parser_free_method;
+  self->super.super.free_fn = log_column_parser_free_method;
 }

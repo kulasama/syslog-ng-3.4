@@ -26,10 +26,10 @@
 #include "syslog-names.h"
 #include "messages.h"
 #include "cfg.h"
-#include "logprocess.h"
 #include "gsocket.h"
 #include "misc.h"
 #include "tags.h"
+#include "cfg-tree.h"
 #include "filter-expr-grammar.h"
 
 #include <regex.h>
@@ -497,14 +497,22 @@ static void
 filter_call_init(FilterExprNode *s, GlobalConfig *cfg)
 {
   FilterCall *self = (FilterCall *) s;
-  LogProcessRule *rule;
+#if 0
+  LogRule *rule;
 
-  rule = g_hash_table_lookup(cfg->filters, self->rule);
+  rule = cfg_get_object(cfg, RI_FILTER, self->rule);
   if (rule)
     {
-      self->filter_expr = ((LogFilterPipe *) rule->head->data)->expr;
+      LogRuleItem *ri;
+
+      ri = rule->items;
+      g_assert(ri->type == RI_SIMPLE_PIPE);
+      g_assert(ri->ref != NULL);
+      
+      self->filter_expr = ((LogFilterPipe *) ri->ref)->expr;
     }
   else
+#endif
     {
       msg_error("Referenced filter rule not found in filter() expression",
                 evt_tag_str("rule", self->rule),
@@ -673,10 +681,6 @@ static gboolean
 log_filter_pipe_init(LogPipe *s)
 {
   LogFilterPipe *self = (LogFilterPipe *) s;
-  GlobalConfig *cfg = log_pipe_get_config(s);
-
-  if (!self->name)
-    self->name = g_strdup_printf("#anon-filter-%d", cfg->anon_filters++);
 
   if (self->expr->init)
     self->expr->init(self->expr, log_pipe_get_config(s));
@@ -710,7 +714,7 @@ log_filter_pipe_queue(LogPipe *s, LogMessage *msg, const LogPathOptions *path_op
 }
 
 static LogPipe *
-log_filter_pipe_clone(LogProcessPipe *s)
+log_filter_pipe_clone(LogPipe *s)
 {
   LogFilterPipe *self = (LogFilterPipe *) s;
 
@@ -724,7 +728,7 @@ log_filter_pipe_free(LogPipe *s)
 
   g_free(self->name);
   filter_expr_unref(self->expr);
-  log_process_pipe_free_method(s);
+  log_pipe_free_method(s);
 }
 
 LogPipe *
@@ -732,13 +736,13 @@ log_filter_pipe_new(FilterExprNode *expr, const gchar *name)
 {
   LogFilterPipe *self = g_new0(LogFilterPipe, 1);
 
-  log_process_pipe_init_instance(&self->super);
-  self->super.super.init = log_filter_pipe_init;
-  self->super.super.queue = log_filter_pipe_queue;
-  self->super.super.free_fn = log_filter_pipe_free;
-  self->super.super.flags |= expr->modify ? PIF_CLONE : 0;
+  log_pipe_init_instance(&self->super);
+  self->super.init = log_filter_pipe_init;
+  self->super.queue = log_filter_pipe_queue;
+  self->super.free_fn = log_filter_pipe_free;
+  self->super.flags |= expr->modify ? PIF_CLONE : 0;
   self->super.clone = log_filter_pipe_clone;
   self->expr = expr;
   self->name = g_strdup(name);
-  return &self->super.super;
+  return &self->super;
 }

@@ -27,7 +27,6 @@
 
 #include "logmsg.h"
 #include "messages.h"
-#include "logprocess.h"
 #include "templates.h"
 #include "logmatcher.h"
 #include "filter.h"
@@ -36,7 +35,7 @@ typedef struct _LogRewrite LogRewrite;
 
 struct _LogRewrite
 {
-  LogProcessPipe super;
+  LogPipe super;
   NVHandle value_handle;
   FilterExprNode *condition;
   void (*process)(LogRewrite *s, LogMessage *msg);

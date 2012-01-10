@@ -598,7 +598,6 @@ cfg_lexer_lex(CfgLexer *self, YYSTYPE *yylval, YYLTYPE *yylloc)
   gboolean injected;
 
  relex:
-
   injected = FALSE;
   while (self->token_blocks)
     {

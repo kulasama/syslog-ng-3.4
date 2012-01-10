@@ -22,11 +22,11 @@ pkginclude_HEADERS = 		\
 	apphook.h		\
 	atomic.h		\
 	block-ref-parser.h	\
-	center.h		\
 	cfg.h                   \
 	cfg-grammar.h           \
 	cfg-lexer.h		\
 	cfg-parser.h		\
+	cfg-tree.h		\
 	children.h		\
 	compat.h		\
 	control.h		\
@@ -44,7 +44,6 @@ pkginclude_HEADERS = 		\
 	logmsg.h		\
 	logparser.h		\
 	logpipe.h		\
-	logprocess.h		\
 	logproto.h		\
 	logqueue-fifo.h		\
 	logqueue.h		\
@@ -94,10 +93,10 @@ libsyslog_ng_la_SOURCES = \
 	alarms.c		\
 	apphook.c		\
 	block-ref-parser.c	\
-	center.c		\
 	cfg.c			\
 	cfg-lexer.c		\
 	cfg-parser.c		\
+	cfg-tree.c		\
 	children.c		\
 	compat.c		\
 	control.c		\
@@ -115,7 +114,6 @@ libsyslog_ng_la_SOURCES = \
 	logmsg.c		\
 	logparser.c		\
 	logpipe.c		\
-	logprocess.c		\
 	logproto.c		\
 	logqueue.c		\
 	logqueue-fifo.c		\

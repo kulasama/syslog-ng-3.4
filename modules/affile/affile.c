@@ -259,7 +259,7 @@ affile_sd_init(LogPipe *s)
   if (!log_src_driver_init_method(s))
     return FALSE;
 
-  log_reader_options_init(&self->reader_options, cfg, self->super.super.group);
+  log_reader_options_init(&self->reader_options, cfg, self->super.super.rule);
 
   file_opened = affile_sd_open_file(self, self->filename->str, &fd);
   if (!file_opened && self->reader_options.follow_freq > 0)

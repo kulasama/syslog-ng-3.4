@@ -133,7 +133,7 @@ afprogram_sd_init(LogPipe *s)
     return FALSE;
 
   if (cfg)
-    log_reader_options_init(&self->reader_options, cfg, self->super.super.group);
+    log_reader_options_init(&self->reader_options, cfg, self->super.super.rule);
   
   msg_verbose("Starting source program",
               evt_tag_str("cmdline", self->cmdline->str),

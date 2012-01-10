@@ -29,27 +29,6 @@
 #include "logpipe.h"
 #include "driver.h"
 
-typedef struct _LogSourceGroup
-{
-  LogPipe super;
-  gchar *name;
-  gint name_len;
-  LogDriver *drivers;
-  StatsCounterItem *processed_messages;
-} LogSourceGroup;
-
-static inline LogSourceGroup *
-log_source_group_ref(LogSourceGroup *s)
-{
-  return (LogSourceGroup *) log_pipe_ref((LogPipe *) s);
-}
-
-static inline void
-log_source_group_unref(LogSourceGroup *s)
-{
-  log_pipe_unref((LogPipe *) s);
-}
-
-LogSourceGroup *log_source_group_new(gchar *name, LogDriver *drivers);
+LogPipe *log_source_group_new(gchar *name);
 
 #endif

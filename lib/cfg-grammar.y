@@ -31,6 +31,12 @@
 
 /* YYSTYPE and YYLTYPE is defined by the lexer */
 #include "cfg-lexer.h"
+#include "sgroup.h"
+#include "dgroup.h"
+#include "afinter.h"
+#include "filter-expr-parser.h"
+#include "parser-expr-parser.h"
+#include "rewrite-expr-parser.h"
 
 /* uses struct declarations instead of the typedefs to avoid having to
  * include logreader/logwriter/driver.h, which defines the typedefs.  This
@@ -297,25 +303,16 @@ extern struct _LogDriver *last_driver;
 
 #include "cfg-parser.h"
 #include "cfg.h"
-#include "sgroup.h"
-#include "dgroup.h"
-#include "center.h"
-#include "filter.h"
+#include "cfg-tree.h"
 #include "templates.h"
 #include "logreader.h"
 #include "logparser.h"
 #include "logrewrite.h"
 #include "value-pairs.h"
 #include "vptransform.h"
-#include "filter-expr-parser.h"
-#include "rewrite-expr-parser.h"
 #include "block-ref-parser.h"
-#include "parser-expr-parser.h"
 #include "plugin.h"
-
-#include "afinter.h"
 #include "logwriter.h"
-
 #include "messages.h"
 
 #include "syslog-names.h"
@@ -332,46 +329,58 @@ LogSourceOptions *last_source_options;
 LogReaderOptions *last_reader_options;
 LogWriterOptions *last_writer_options;
 LogTemplate *last_template;
-GList *last_rewrite_expr;
-GList *last_parser_expr;
-FilterExprNode *last_filter_expr;
 CfgArgs *last_block_args;
 ValuePairs *last_value_pairs;
 ValuePairsTransformSet *last_vp_transset;
 
 }
 
+%type   <ptr> expr_stmt
+%type   <ptr> source_stmt
+%type   <ptr> dest_stmt
+%type   <ptr> filter_stmt
+%type   <ptr> parser_stmt
+%type   <ptr> rewrite_stmt
+%type   <ptr> log_stmt
+
+/* START_DECLS */
+
+%type   <ptr> source_content
 %type	<ptr> source_items
 %type	<ptr> source_item
 %type   <ptr> source_afinter
 %type   <ptr> source_plugin
 %type   <ptr> source_afinter_params
 
+%type   <ptr> dest_content
 %type	<ptr> dest_items
 %type	<ptr> dest_item
 %type   <ptr> dest_plugin
 
-%type	<ptr> log_content
+%type   <ptr> filter_content
+
+%type   <ptr> parser_content
+
+%type   <ptr> rewrite_content
+
 %type	<ptr> log_items
 %type	<ptr> log_item
 
 %type   <ptr> log_last_junction
+%type   <ptr> log_junction
+%type   <ptr> log_content
 %type   <ptr> log_forks
 %type   <ptr> log_fork
 
 %type	<num> log_flags
 %type   <num> log_flags_items
 
+ /* END_DECLS */
+
 %type	<ptr> options_items
 %type	<ptr> options_item
 
-%type   <ptr> source_content
-%type   <ptr> filter_content
-%type   <ptr> parser_content
-%type   <ptr> rewrite_content
-%type   <ptr> dest_content
-
-/* START_DECLS */
+ /* START_DECLS */
 
 %type   <ptr> value_pair_option
 
@@ -402,260 +411,89 @@ stmts
 	;
 
 stmt
-        : source_stmt
-	| dest_stmt
-	| log_stmt
-	| filter_stmt
-	| parser_stmt
-        | rewrite_stmt
+        : expr_stmt
+          {
+            CHECK_ERROR(cfg_tree_add_object(&configuration->tree, $1) || cfg_allow_config_dups(configuration), @1, "duplicate %s definition", log_expr_node_get_content_name(((LogExprNode *) $1)->content));
+          }
 	| template_stmt
 	| options_stmt
 	| block_stmt
 	;
 
+expr_stmt
+        : source_stmt
+	| dest_stmt
+	| filter_stmt
+	| parser_stmt
+        | rewrite_stmt
+	| log_stmt
+        ;
+
 source_stmt
-	: KW_SOURCE string '{' source_content '}'
+        : KW_SOURCE string '{' source_content '}'
           {
-            LogSourceGroup *sgroup = log_source_group_new($2, $4); free($2);
-            CHECK_ERROR(cfg_add_source(configuration, sgroup) || cfg_allow_config_dups(configuration), @2, "duplicate source definition");
+            $$ = log_expr_node_new_source($2, $4, &@1);
+            free($2);
+          }
+	;
+dest_stmt
+       : KW_DESTINATION string '{' dest_content '}'
+          {
+            $$ = log_expr_node_new_destination($2, $4, &@1);
+            free($2);
           }
 	;
 
-
-source_content
-        :
-          { cfg_lexer_push_context(lexer, LL_CONTEXT_SOURCE, NULL, "source"); }
-          source_items
-          { cfg_lexer_pop_context(lexer); }
-          { $$ = $2; }
-        ;
 
 filter_stmt
-	: KW_FILTER string '{' filter_content '}'
+        : KW_FILTER string '{' filter_content '}'
           {
-            LogProcessRule *rule = log_process_rule_new($2, g_list_prepend(NULL, log_filter_pipe_new($4, $2)));
+            $$ = log_expr_node_new_filter($2, $4, &@1);
             free($2);
-            CHECK_ERROR(cfg_add_filter(configuration, rule) || cfg_allow_config_dups(configuration), @2, "duplicate filter rule");
           }
         ;
 
-filter_content
-        : {
-	    CHECK_ERROR(cfg_parser_parse(&filter_expr_parser, lexer, (gpointer *) &last_filter_expr, NULL), @0, NULL);
-            $$ = last_filter_expr;
-            last_filter_expr = NULL;
-	  }
-	;
-	
 parser_stmt
         : KW_PARSER string '{' parser_content '}'
           {
-            LogProcessRule *rule = log_process_rule_new($2, $4);
+            $$ = log_expr_node_new_parser($2, $4, &@1);
             free($2);
-            CHECK_ERROR(cfg_add_parser(configuration, rule) || cfg_allow_config_dups(configuration), @2, "duplicate parser rule");
-          }
-        ;
-
-parser_content
-        :
-          {
-            CHECK_ERROR(cfg_parser_parse(&parser_expr_parser, lexer, (gpointer *) &last_parser_expr, NULL), @0, NULL);
-            $$ = last_parser_expr;
-            last_parser_expr = NULL;
           }
         ;
 
 rewrite_stmt
         : KW_REWRITE string '{' rewrite_content '}'
           {
-            LogProcessRule *rule = log_process_rule_new($2, $4);
+            $$ = log_expr_node_new_rewrite($2, $4, &@1);
             free($2);
-            CHECK_ERROR(cfg_add_rewrite(configuration, rule) || cfg_allow_config_dups(configuration), @2, "duplicate rewrite rule");
           }
-
-rewrite_content
-        :
-          {
-            CHECK_ERROR(cfg_parser_parse(&rewrite_expr_parser, lexer, (gpointer *) &last_rewrite_expr, NULL), @0, NULL);
-            $$ = last_rewrite_expr;
-            last_rewrite_expr = NULL;
-          }
-        ;
-
-dest_stmt
-        : KW_DESTINATION string '{' dest_content '}'
-          {
-            LogDestGroup *dgroup = log_dest_group_new($2, $4);
-            free($2);
-            CHECK_ERROR(cfg_add_dest(configuration, dgroup) || cfg_allow_config_dups(configuration), @2, "duplicate destination");
-          }
-	;
-
-dest_content
-         : { cfg_lexer_push_context(lexer, LL_CONTEXT_DESTINATION, NULL, "destination"); }
-            dest_items
-           { cfg_lexer_pop_context(lexer); }
-           {
-             $$ = $2;
-           }
-         ;
-
-
-block_stmt
-        : KW_BLOCK
-          { cfg_lexer_push_context(lexer, LL_CONTEXT_BLOCK_DEF, block_def_keywords, "block definition"); }
-          LL_IDENTIFIER LL_IDENTIFIER
-          '(' { last_block_args = cfg_args_new(); } block_args ')'
-          { cfg_lexer_push_context(lexer, LL_CONTEXT_BLOCK_CONTENT, NULL, "block content"); }
-          LL_BLOCK
-          {
-            CfgBlock *block;
-
-            /* block content */
-            cfg_lexer_pop_context(lexer);
-            /* block definition */
-            cfg_lexer_pop_context(lexer);
-
-            block = cfg_block_new($10, last_block_args);
-            CHECK_ERROR(cfg_lexer_register_block_generator(lexer, cfg_lexer_lookup_context_type_by_name($3), $4, cfg_block_generate, block, (GDestroyNotify) cfg_block_free) || cfg_allow_config_dups(configuration), @4, "duplicate block definition");
-            free($10);
-            last_block_args = NULL;
-          }
-        ;
-
-block_args
-        : block_arg block_args
-        |
-        ;
-
-block_arg
-        : LL_IDENTIFIER
-          {
-            cfg_lexer_push_context(lexer, LL_CONTEXT_BLOCK_ARG, NULL, "block argument");
-          }
-          LL_BLOCK
-          {
-            cfg_lexer_pop_context(lexer);
-            if (strcmp($3, "") != 0)
-              cfg_args_set(last_block_args, $1, $3); free($1); free($3);
-          }
-        ;
 
 log_stmt
         : KW_LOG
           { cfg_lexer_push_context(lexer, LL_CONTEXT_LOG, NULL, "log"); }
           '{' log_content '}'
           { cfg_lexer_pop_context(lexer); }
-
           {
-            cfg_add_connection(configuration, $4);
+            $$ = $4;
           }
 
 	;
 
-log_content
-        : log_items log_last_junction log_flags
+/* START_RULES */
+
+source_content
+        :
+          { cfg_lexer_push_context(lexer, LL_CONTEXT_SOURCE, NULL, "source"); }
+          source_items
+          { cfg_lexer_pop_context(lexer); }
           {
-            LogPipeItem *pi = log_pipe_item_append_tail($1, $2);
-            $$ = log_connection_new(pi, $3);
+            $$ = log_expr_node_new_sequence(log_expr_node_append_tail(log_expr_node_new_junction($2, &@$), log_expr_node_new_pipe(log_source_group_new(NULL), &@1)), &@1);
           }
         ;
-
-log_items
-	: log_item log_semicolons log_items		{ log_pipe_item_append($1, $3); $$ = $1; }
-	|					{ $$ = NULL; }
-	;
-
-log_item
-	: KW_SOURCE '(' string ')'		{ $$ = log_pipe_item_new(EP_SOURCE, $3); free($3); }
-	| KW_SOURCE '{' source_content '}'	{ $$ = log_pipe_item_new_ref(EP_SOURCE, log_source_group_new(NULL, $3)); }
-	| KW_FILTER '(' string ')'		{ $$ = log_pipe_item_new(EP_FILTER, $3); free($3); }
-        | KW_FILTER '{' filter_content '}'
-          {
-            LogProcessRule *rule = log_process_rule_new(NULL, g_list_prepend(NULL, log_filter_pipe_new($3, NULL)));
-            $$ = log_pipe_item_new_ref(EP_FILTER, rule);
-          }
-        | KW_PARSER '(' string ')'              { $$ = log_pipe_item_new(EP_PARSER, $3); free($3); }
-        | KW_PARSER '{' parser_content '}'      { $$ = log_pipe_item_new_ref(EP_PARSER, log_process_rule_new(NULL, $3)); }
-        | KW_REWRITE '(' string ')'             { $$ = log_pipe_item_new(EP_REWRITE, $3); free($3); }
-        | KW_REWRITE '{' rewrite_content '}'    { $$ = log_pipe_item_new_ref(EP_REWRITE, log_process_rule_new(NULL, $3)); }
-	| KW_DESTINATION '(' string ')'		{ $$ = log_pipe_item_new(EP_DESTINATION, $3); free($3); }
-	| KW_DESTINATION '{' dest_content '}'	{ $$ = log_pipe_item_new_ref(EP_DESTINATION, log_dest_group_new(NULL, $3)); }
-        | KW_JUNCTION '{' log_forks '}'         { $$ = log_pipe_item_new_ref(EP_JUNCTION, $3); }
-	;
-
-log_last_junction
-
-        /* this rule matches the last set of embedded log {}
-         * statements at the end of the log {} block.
-         * It is the final junction and was the only form of creating
-         * a processing tree before syslog-ng 3.4.
-         *
-         * We emulate if the user was writing junction {} explicitly.
-         */
-        : log_forks                             { $$ = $1 ? log_pipe_item_new_ref(EP_JUNCTION, $1) :  NULL; }
-        ;
-
-log_forks
-        : log_fork log_semicolons log_forks		{ log_pipe_item_append($1, $3); $$ = $1; }
-        |                                       { $$ = NULL; }
-        ;
-
-log_fork
-        : KW_LOG '{' log_items log_last_junction log_flags '}' { LogPipeItem *pi = log_pipe_item_append_tail($3, $4); $$ = log_pipe_item_new_ref(EP_PIPE, log_connection_new(pi, $5)); }
-        ;
-
-log_flags
-	: KW_FLAGS '(' log_flags_items ')' log_semicolons	{ $$ = $3; }
-	|					{ $$ = 0; }
-	;
-
-log_semicolons
-        : ';'
-        | ';' log_semicolons
-        ;
-
-log_flags_items
-	: string log_flags_items		{ $$ = log_connection_lookup_flag($1) | $2; free($1); }
-	|					{ $$ = 0; }
-	;
-
-
-options_stmt
-        : KW_OPTIONS '{' options_items '}'
-	;
-	
-template_stmt
-	: KW_TEMPLATE string
-	  {
-	    last_template = log_template_new(configuration, $2);
-	    free($2);
-	  }
-	  '{' template_items '}'
-          {
-            CHECK_ERROR(cfg_add_template(configuration, last_template) || cfg_allow_config_dups(configuration), @2, "duplicate template");
-          }
-	;
-	
-template_items
-	: template_item ';' template_items
-	|
-	;
-
-template_item
-	: KW_TEMPLATE '(' string ')'		{
-                                                  GError *error = NULL;
-
-                                                  CHECK_ERROR(log_template_compile(last_template, $3, &error), @3, "Error compiling template (%s)", error->message);
-                                                  free($3);
-                                                }
-	| KW_TEMPLATE_ESCAPE '(' yesno ')'	{ log_template_set_escape(last_template, $3); }
-	;
-
 
 source_items
-        : source_item ';' source_items		{ if ($1) {log_driver_append($1, $3); log_pipe_unref($3); $$ = $1; } else { YYERROR; } }
-        | ';' source_items                      { $$ = $2; }
+        : source_item semicolons source_items	{ $$ = log_expr_node_append_tail(log_expr_node_new_pipe($1, &@1), $3); }
+        | log_fork semicolons source_items      { $$ = log_expr_node_append_tail($1,  $3); }
 	|					{ $$ = NULL; }
 	;
 
@@ -704,9 +542,51 @@ source_afinter_option
         : source_option
         ;
 
+
+filter_content
+        : {
+            FilterExprNode *last_filter_expr = NULL;
+
+	    CHECK_ERROR(cfg_parser_parse(&filter_expr_parser, lexer, (gpointer *) &last_filter_expr, NULL), @$, NULL);
+
+            $$ = log_expr_node_new_pipe(log_filter_pipe_new(last_filter_expr, NULL), &@$);
+	  }
+	;
+	
+parser_content
+        :
+          {
+            LogExprNode *last_parser_expr = NULL;
+
+            CHECK_ERROR(cfg_parser_parse(&parser_expr_parser, lexer, (gpointer *) &last_parser_expr, NULL), @$, NULL);
+            $$ = last_parser_expr;
+          }
+        ;
+
+rewrite_content
+        :
+          {
+            LogExprNode *last_rewrite_expr = NULL;
+
+            CHECK_ERROR(cfg_parser_parse(&rewrite_expr_parser, lexer, (gpointer *) &last_rewrite_expr, NULL), @$, NULL);
+            $$ = last_rewrite_expr;
+          }
+        ;
+
+dest_content
+         : { cfg_lexer_push_context(lexer, LL_CONTEXT_DESTINATION, NULL, "destination"); }
+            dest_items
+           { cfg_lexer_pop_context(lexer); }
+           {
+             $$ = log_expr_node_new_sequence(log_expr_node_append_tail(log_expr_node_new_pipe(log_dest_group_new(NULL), &@$), log_expr_node_new_junction($2, &@$)), &@$);
+           }
+         ;
+
+
 dest_items
-	: dest_item ';' dest_items		{ log_driver_append($1, $3); log_pipe_unref($3); $$ = $1; }
-        | ';' dest_items                        { $$ = $2; }
+        /* all destination drivers are added as an independent branch in a junction*/
+        : dest_item semicolons dest_items	{ $$ = log_expr_node_append_tail(log_expr_node_new_pipe($1, &@1), $3); }
+        | log_fork semicolons dest_items        { $$ = log_expr_node_append_tail($1,  $3); }
 	|					{ $$ = NULL; }
 	;
 
@@ -730,6 +610,139 @@ dest_plugin
                 YYERROR;
               }
             $$ = last_driver;
+          }
+        ;
+
+log_items
+	: log_item semicolons log_items		{ log_expr_node_append_tail($1, $3); $$ = $1; }
+	|					{ $$ = NULL; }
+	;
+
+log_item
+        : KW_SOURCE '(' string ')'		{ $$ = log_expr_node_new_source_reference($3, &@$); free($3); }
+        | KW_SOURCE '{' source_content '}'      { $$ = log_expr_node_new_source(NULL, $3, &@$); }
+        | KW_FILTER '(' string ')'		{ $$ = log_expr_node_new_filter_reference($3, &@$); free($3); }
+        | KW_FILTER '{' filter_content '}'      { $$ = $3; }
+        | KW_PARSER '(' string ')'              { $$ = log_expr_node_new_parser_reference($3, &@$); free($3); }
+        | KW_PARSER '{' parser_content '}'      { $$ = $3; }
+        | KW_REWRITE '(' string ')'             { $$ = log_expr_node_new_rewrite_reference($3, &@$); free($3); }
+        | KW_REWRITE '{' rewrite_content '}'    { $$ = $3; }
+        | KW_DESTINATION '(' string ')'		{ $$ = log_expr_node_new_destination_reference($3, &@$); free($3); }
+        | KW_DESTINATION '{' dest_content '}'   { $$ = log_expr_node_new_destination(NULL, $3, &@$); }
+        | log_junction                          { $$ = $1; }
+	;
+
+log_junction
+        : KW_JUNCTION '{' log_forks '}'         { $$ = log_expr_node_new_junction($3, &@$); }
+        ;
+
+log_last_junction
+
+        /* this rule matches the last set of embedded log {}
+         * statements at the end of the log {} block.
+         * It is the final junction and was the only form of creating
+         * a processing tree before syslog-ng 3.4.
+         *
+         * We emulate if the user was writing junction {} explicitly.
+         */
+        : log_forks                             { $$ = $1 ? log_expr_node_new_junction($1, &@1) :  NULL; }
+        ;
+
+
+log_forks
+        : log_fork semicolons log_forks		{ log_expr_node_append_tail($1, $3); $$ = $1; }
+        |                                       { $$ = NULL; }
+        ;
+
+log_fork
+        : KW_LOG '{' log_content '}'            { $$ = $3; }
+        ;
+
+log_content
+        : log_items log_last_junction log_flags                { $$ = log_expr_node_new_log(log_expr_node_append_tail($1, $2), $3, &@$); }
+        ;
+
+log_flags
+	: KW_FLAGS '(' log_flags_items ')' semicolons	{ $$ = $3; }
+	|					{ $$ = 0; }
+	;
+
+log_flags_items
+	: string log_flags_items		{ $$ = log_expr_node_lookup_flag($1) | $2; free($1); }
+	|					{ $$ = 0; }
+	;
+
+/* END_RULES */
+
+options_stmt
+        : KW_OPTIONS '{' options_items '}'
+	;
+	
+template_stmt
+	: KW_TEMPLATE string
+	  {
+	    last_template = log_template_new(configuration, $2);
+	    free($2);
+	  }
+	  '{' template_items '}'
+          {
+            CHECK_ERROR(cfg_tree_add_template(&configuration->tree, last_template) || cfg_allow_config_dups(configuration), @2, "duplicate template");
+          }
+	;
+	
+template_items
+	: template_item ';' template_items
+	|
+	;
+
+template_item
+	: KW_TEMPLATE '(' string ')'		{
+                                                  GError *error = NULL;
+
+                                                  CHECK_ERROR(log_template_compile(last_template, $3, &error), @3, "Error compiling template (%s)", error->message);
+                                                  free($3);
+                                                }
+	| KW_TEMPLATE_ESCAPE '(' yesno ')'	{ log_template_set_escape(last_template, $3); }
+	;
+
+
+block_stmt
+        : KW_BLOCK
+          { cfg_lexer_push_context(lexer, LL_CONTEXT_BLOCK_DEF, block_def_keywords, "block definition"); }
+          LL_IDENTIFIER LL_IDENTIFIER
+          '(' { last_block_args = cfg_args_new(); } block_args ')'
+          { cfg_lexer_push_context(lexer, LL_CONTEXT_BLOCK_CONTENT, NULL, "block content"); }
+          LL_BLOCK
+          {
+            CfgBlock *block;
+
+            /* block content */
+            cfg_lexer_pop_context(lexer);
+            /* block definition */
+            cfg_lexer_pop_context(lexer);
+
+            block = cfg_block_new($10, last_block_args);
+            CHECK_ERROR(cfg_lexer_register_block_generator(lexer, cfg_lexer_lookup_context_type_by_name($3), $4, cfg_block_generate, block, (GDestroyNotify) cfg_block_free) || cfg_allow_config_dups(configuration), @4, "duplicate block definition");
+            free($10);
+            last_block_args = NULL;
+          }
+        ;
+
+block_args
+        : block_arg block_args
+        |
+        ;
+
+block_arg
+        : LL_IDENTIFIER
+          {
+            cfg_lexer_push_context(lexer, LL_CONTEXT_BLOCK_ARG, NULL, "block argument");
+          }
+          LL_BLOCK
+          {
+            cfg_lexer_pop_context(lexer);
+            if (strcmp($3, "") != 0)
+              cfg_args_set(last_block_args, $1, $3); free($1); free($3);
           }
         ;
 
@@ -820,6 +833,11 @@ string_list
 string_list_build
         : string string_list_build		{ $$ = g_list_append($2, g_strdup($1)); free($1); }
         |					{ $$ = NULL; }
+        ;
+
+semicolons
+        : ';'
+        | ';' semicolons
         ;
 
 level_string
@@ -947,7 +965,7 @@ dest_writer_option
 	| KW_TEMPLATE '(' string ')'       	{
                                                   GError *error = NULL;
 
-                                                  last_writer_options->template = cfg_check_inline_template(configuration, $3, &error);
+                                                  last_writer_options->template = cfg_tree_check_inline_template(&configuration->tree, $3, &error);
                                                   CHECK_ERROR(last_writer_options->template != NULL, @3, "Error compiling template (%s)", error->message);
 	                                          free($3);
 	                                        }

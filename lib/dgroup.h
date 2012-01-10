@@ -30,26 +30,6 @@
 #include "driver.h"
 #include "stats.h"
 
-typedef struct _LogDestGroup
-{
-  LogPipe super;
-  gchar *name;
-  LogDriver *drivers;
-  StatsCounterItem *processed_messages;
-} LogDestGroup;
-
-static inline LogDestGroup *
-log_dest_group_ref(LogDestGroup *self)
-{
-  return (LogDestGroup *) log_pipe_ref(&self->super);
-}
-
-static inline void
-log_dest_group_unref(LogDestGroup *self)
-{
-  log_pipe_unref(&self->super);
-}
-
-LogDestGroup *log_dest_group_new(gchar *name, LogDriver *drivers);
+LogPipe *log_dest_group_new(gchar *name);
 
 #endif

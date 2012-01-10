@@ -31,66 +31,35 @@
 #include <time.h>
 #include <string.h>
 
+typedef struct _LogSourceGroup
+{
+  LogPipe super;
+  gchar *name;
+  gint name_len;
+  StatsCounterItem *processed_messages;
+} LogSourceGroup;
+
+
 static gboolean
 log_source_group_init(LogPipe *s)
 {
   LogSourceGroup *self = (LogSourceGroup *) s;
-  LogDriver *p;
-  GlobalConfig *cfg = log_pipe_get_config(s);
-  gint id = 0;
 
-  if (!self->name)
-    self->name = g_strdup_printf("#anon-source-%d", cfg->anon_sgroups++);
-  self->name_len = strlen(self->name);
-
-  for (p = self->drivers; p; p = p->drv_next)
-    {
-      p->group = g_strdup(self->name);
-      if (!p->id)
-        p->id = g_strdup_printf("%s#%d", self->name, id++);
-      if (!log_pipe_init(&p->super, cfg))
-        {
-          msg_error("Error initializing source driver",
-                    evt_tag_str("source", self->name),
-                    evt_tag_str("id", p->id),
-                    NULL);
-          goto deinit_all;
-	}
-      log_pipe_append(&p->super, s);
-    }
   stats_lock();
   stats_register_counter(0, SCS_SOURCE | SCS_GROUP, self->name, NULL, SC_TYPE_PROCESSED, &self->processed_messages);
   stats_unlock();
   return TRUE;
-  
- deinit_all:
-  for (p = self->drivers; p; p = p->drv_next)
-    log_pipe_deinit(&p->super);
-  return FALSE;
 }
 
 static gboolean
 log_source_group_deinit(LogPipe *s)
 {
   LogSourceGroup *self = (LogSourceGroup *) s;
-  LogDriver *p;
-  gboolean success = TRUE;
 
   stats_lock();
   stats_unregister_counter(SCS_SOURCE | SCS_GROUP, self->name, NULL, SC_TYPE_PROCESSED, &self->processed_messages);
   stats_unlock();
-  for (p = self->drivers; p; p = p->drv_next)
-    {
-      if (!log_pipe_deinit(&p->super))
-        {
-          msg_error("Error deinitializing source driver",
-                    evt_tag_str("source", self->name),
-                    evt_tag_str("id", p->id),
-                    NULL);
-          success = FALSE;
-	}
-    }
-  return success;
+  return TRUE;
 }
 
 static void
@@ -112,22 +81,23 @@ log_source_group_free(LogPipe *s)
 {
   LogSourceGroup *self = (LogSourceGroup *) s;
   
-  log_pipe_unref(&self->drivers->super);
   g_free(self->name);
   log_pipe_free_method(s);
 }
 
-LogSourceGroup *
-log_source_group_new(gchar *name, LogDriver *drivers)
+LogPipe *
+log_source_group_new(gchar *name)
 {
   LogSourceGroup *self = g_new0(LogSourceGroup, 1);
 
   log_pipe_init_instance(&self->super);  
-  self->name = g_strdup(name);
-  self->drivers = drivers;
   self->super.init = log_source_group_init;
   self->super.deinit = log_source_group_deinit;
   self->super.queue = log_source_group_queue;
   self->super.free_fn = log_source_group_free;
-  return self;
+
+  self->name = g_strdup(name);
+  //self->name_len = strlen(self->name);
+
+  return &self->super;
 }
